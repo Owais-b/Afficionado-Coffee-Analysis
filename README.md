@@ -455,18 +455,6 @@ The notebook covers:
 
 ---
 
-# 🖼️ Dashboard Preview
-
-Project screenshots and visual outputs are available in:
-
-```text
-outputs/
-```
-
-For the interactive experience, visit the live dashboard:
-
-### 🔗 [Launch Live Dashboard](https://afficionado-coffee-analysis-gcvrdhuuolzggohndaeces.streamlit.app/)
-
 ---
 
 # 📦 Project Deliverables
