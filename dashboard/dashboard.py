@@ -50,18 +50,23 @@ st.markdown(
 def load_data():
 
     # --------------------------------------------------------
-    # YOUR DATASET PATH
+    # FIND PROJECT ROOT DIRECTORY
     # --------------------------------------------------------
+    # dashboard.py is inside the "dashboard" folder.
+    # The "data" folder is located one level above it.
+    # --------------------------------------------------------
+
+    BASE_DIR = os.path.dirname(
+        os.path.dirname(
+            os.path.abspath(__file__)
+        )
+    )
+
     DATA_PATH = os.path.join(
-    BASE_DIR,
-    "data",
-    "Coffee Shop Sales New.xlsx"
-)
-    DATA_PATH = os.path.join(
-    BASE_DIR,
-    "data",
-    "Coffee Shop Sales New.xlsx"
-)
+        BASE_DIR,
+        "data",
+        "Coffee Shop Sales New.xlsx"
+    )
 
     # Check whether file exists
     if not os.path.exists(DATA_PATH):
@@ -2134,204 +2139,4 @@ st.caption(
     "Sales Trend and Time-Based Performance Analysis | "
     "Machine Learning Internship"
 
-)
-
-
-# ============================================================
-# MODULE 7
-# DATA VALIDATION
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "7️⃣ Data Validation Summary"
-)
-
-
-with st.expander(
-    "View Data Quality Checks"
-):
-
-    validation = pd.DataFrame(
-
-        {
-
-            "Validation Check": [
-
-                "Total Rows",
-
-                "Total Columns",
-
-                "Missing Values",
-
-                "Duplicate Rows",
-
-                "Duplicate Transaction IDs",
-
-                "Invalid Dates",
-
-                "Invalid Times",
-
-                "Non-positive Quantity",
-
-                "Non-positive Unit Price"
-
-            ],
-
-            "Result": [
-
-                len(df),
-
-                len(df.columns),
-
-                int(
-                    df.isna()
-                    .sum()
-                    .sum()
-                ),
-
-                int(
-                    df.duplicated()
-                    .sum()
-                ),
-
-                int(
-                    df[
-                        "transaction_id"
-                    ]
-                    .duplicated()
-                    .sum()
-                ),
-
-                int(
-                    df[
-                        "transaction_date"
-                    ]
-                    .isna()
-                    .sum()
-                ),
-
-                int(
-                    df[
-                        "transaction_time"
-                    ]
-                    .isna()
-                    .sum()
-                ),
-
-                int(
-                    (
-                        df[
-                            "transaction_qty"
-                        ]
-                        <= 0
-                    )
-                    .sum()
-                ),
-
-                int(
-                    (
-                        df[
-                            "unit_price"
-                        ]
-                        <= 0
-                    )
-                    .sum()
-                )
-
-            ]
-
-        }
-
-    )
-
-
-    st.dataframe(
-
-        validation,
-
-        use_container_width=True,
-
-        hide_index=True
-
-    )
-
-
-# ============================================================
-# DATASET INFORMATION
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "8️⃣ Dataset Information"
-)
-
-
-info1, info2, info3 = st.columns(3)
-
-
-with info1:
-
-    st.metric(
-        "Dataset Start Date",
-        str(
-            df[
-                "transaction_date"
-            ]
-            .min()
-            .date()
-        )
-    )
-
-
-with info2:
-
-    st.metric(
-        "Dataset End Date",
-        str(
-            df[
-                "transaction_date"
-            ]
-            .max()
-            .date()
-        )
-    )
-
-
-with info3:
-
-    st.metric(
-        "Number of Stores",
-        df[
-            "store_location"
-        ]
-        .nunique()
-    )
-
-
-st.info(
-
-    """
-    **Dataset Scope Note:**
-    
-    The date-enabled dataset currently loaded in this dashboard
-    contains transactions from **1 January 2023 to 30 June 2023**.
-    
-    """
-)
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown("---")
-
-st.caption(
-
-    "Afficionado Coffee Roasters | "
-    "Sales Trend and Time-Based Performance Analysis | "
-    "Machine Learning Internship"
 )
