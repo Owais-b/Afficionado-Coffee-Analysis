@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 # ============================================================
 
 st.set_page_config(
-    page_title="Afficionado Coffee Roasters Analytics",
+    page_title="Afficionado Coffee Roasters | Sales Analytics",
     page_icon="☕",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -19,163 +19,194 @@ st.set_page_config(
 
 
 # ============================================================
-# CUSTOM CSS
+# TITLE
 # ============================================================
+
+st.title("☕ Afficionado Coffee Roasters")
+st.subheader("Sales Trend and Time-Based Performance Analysis")
 
 st.markdown(
     """
-    <style>
-    .main {
-        padding-top: 1rem;
-    }
-
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-
-    h1 {
-        font-weight: 700;
-    }
-
-    h2 {
-        font-weight: 600;
-    }
-
-    h3 {
-        font-weight: 600;
-    }
-
-    [data-testid="stMetricValue"] {
-        font-size: 28px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+    This interactive dashboard analyses sales patterns across dates, 
+    days of the week, hours of the day, time periods, and store locations.
+    
+    The objective is to support evidence-based decisions related to:
+    
+    - Staff scheduling
+    - Operational planning
+    - Store-level performance
+    - Peak and off-peak demand
+    - Inventory planning
+    - Customer experience
+    """
 )
 
 
 # ============================================================
-# DATA PATH
+# DATA LOADING
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
+@st.cache_data
+def load_data():
+
+    # --------------------------------------------------------
+    # YOUR DATASET PATH
+    # --------------------------------------------------------
+
+    DATA_PATH = (
+        "C:/Users/User/Desktop/"
+        "Afficionado_Coffee_Analysis/data/"
+        "Coffee Shop Sales New.xlsx"
     )
-)
 
-DATA_PATH = os.path.join(
-    BASE_DIR,
-    "data",
-    "Coffee Shop Sales New.xlsx"
-)
+    # Check whether file exists
+    if not os.path.exists(DATA_PATH):
+        raise FileNotFoundError(
+            f"""
+            Dataset not found.
 
+            Expected location:
+            {DATA_PATH}
 
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
-
-def find_column(df, possible_names):
-    """
-    Finds a column from a list of possible column names.
-    Comparison is case-insensitive and ignores spaces,
-    underscores and hyphens.
-    """
-
-    normalized_columns = {}
-
-    for col in df.columns:
-        normalized = (
-            str(col)
-            .strip()
-            .lower()
-            .replace(" ", "")
-            .replace("_", "")
-            .replace("-", "")
+            Please make sure that:
+            1. The file exists.
+            2. The file name is exactly:
+               Coffee Shop Sales New.xlsx
+            3. The file is inside the data folder.
+            """
         )
 
-        normalized_columns[normalized] = col
+    # Read Excel file
+    df = pd.read_excel(DATA_PATH)
 
-    for name in possible_names:
-        normalized_name = (
-            name.strip()
-            .lower()
-            .replace(" ", "")
-            .replace("_", "")
-            .replace("-", "")
+    # --------------------------------------------------------
+    # REQUIRED COLUMNS
+    # --------------------------------------------------------
+
+    required_columns = [
+        "transaction_id",
+        "transaction_date",
+        "transaction_time",
+        "transaction_qty",
+        "unit_price",
+        "store_id",
+        "store_location",
+        "product_id",
+        "product_category",
+        "product_type",
+        "product_detail"
+    ]
+
+    missing_columns = [
+        col for col in required_columns
+        if col not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns: {missing_columns}"
         )
 
-        if normalized_name in normalized_columns:
-            return normalized_columns[normalized_name]
+    # --------------------------------------------------------
+    # DATA TYPE CONVERSION
+    # --------------------------------------------------------
 
-    return None
+    df["transaction_date"] = pd.to_datetime(
+        df["transaction_date"],
+        errors="coerce"
+    )
 
+    # Convert transaction time
+    df["transaction_time"] = pd.to_datetime(
+        df["transaction_time"].astype(str),
+        format="%H:%M:%S",
+        errors="coerce"
+    )
 
-def format_number(value):
-    """
-    Formats large numbers using full units instead of
-    unexplained k/M notation.
-    """
+    # --------------------------------------------------------
+    # FEATURE ENGINEERING
+    # --------------------------------------------------------
 
-    if pd.isna(value):
-        return "0"
+    # Revenue per transaction
+    df["revenue"] = (
+        df["transaction_qty"] *
+        df["unit_price"]
+    )
 
-    return f"{value:,.0f}"
+    # Hour of day
+    df["hour"] = df["transaction_time"].dt.hour
 
+    # Day of week
+    df["day_of_week"] = (
+        df["transaction_date"]
+        .dt.day_name()
+    )
 
-def format_currency(value):
-    """
-    Formats revenue values using Indian Rupee notation.
-    """
+    # Day number
+    df["day_of_week_num"] = (
+        df["transaction_date"]
+        .dt.dayofweek
+    )
 
-    if pd.isna(value):
-        return "₹0"
+    # Week starting date
+    df["week_start"] = (
+        df["transaction_date"]
+        - pd.to_timedelta(
+            df["transaction_date"].dt.dayofweek,
+            unit="D"
+        )
+    )
 
-    return f"₹{value:,.2f}"
+    # Month
+    df["month"] = (
+        df["transaction_date"]
+        .dt.to_period("M")
+        .astype(str)
+    )
+
+    # Weekend indicator
+    df["is_weekend"] = (
+        df["day_of_week_num"] >= 5
+    )
+
+    # --------------------------------------------------------
+    # TIME BUCKET
+    # --------------------------------------------------------
+
+    def get_time_bucket(hour):
+
+        if 6 <= hour <= 11:
+            return "Morning"
+
+        elif 12 <= hour <= 16:
+            return "Afternoon"
+
+        elif 17 <= hour <= 21:
+            return "Evening"
+
+        else:
+            return "Late Hours"
+
+    df["time_bucket"] = (
+        df["hour"]
+        .apply(get_time_bucket)
+    )
+
+    return df
 
 
 # ============================================================
 # LOAD DATA
 # ============================================================
 
-@st.cache_data
-def load_data(path):
-
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"Dataset not found at: {path}"
-        )
-
-    df = pd.read_excel(path)
-
-    return df
-
-
-# ============================================================
-# LOAD DATASET
-# ============================================================
-
 try:
 
-    df = load_data(DATA_PATH)
-
-except FileNotFoundError:
-
-    st.error(
-        "❌ Dataset not found."
-    )
-
-    st.info(
-        f"Expected dataset location:\n\n{DATA_PATH}"
-    )
-
-    st.stop()
+    df = load_data()
 
 except Exception as e:
 
     st.error(
-        "❌ An error occurred while loading the dataset."
+        "❌ Unable to load the dataset."
     )
 
     st.exception(e)
@@ -184,338 +215,80 @@ except Exception as e:
 
 
 # ============================================================
-# CLEAN COLUMN NAMES
+# DATASET INFORMATION
 # ============================================================
 
-df.columns = (
-    df.columns
-    .astype(str)
-    .str.strip()
+st.sidebar.success(
+    "✅ Dataset loaded successfully"
 )
 
-
-# ============================================================
-# IDENTIFY IMPORTANT COLUMNS
-# ============================================================
-
-transaction_id_col = find_column(
-    df,
-    [
-        "transaction_id",
-        "transaction id",
-        "transactionid"
-    ]
+st.sidebar.write(
+    f"**Records:** {len(df):,}"
 )
 
-date_col = find_column(
-    df,
-    [
-        "transaction_date",
-        "transaction date",
-        "transactiondate",
-        "date"
-    ]
-)
-
-time_col = find_column(
-    df,
-    [
-        "transaction_time",
-        "transaction time",
-        "transactiontime",
-        "time"
-    ]
-)
-
-quantity_col = find_column(
-    df,
-    [
-        "transaction_qty",
-        "transaction qty",
-        "transaction quantity",
-        "quantity",
-        "qty"
-    ]
-)
-
-price_col = find_column(
-    df,
-    [
-        "unit_price",
-        "unit price",
-        "unitprice",
-        "price"
-    ]
-)
-
-store_location_col = find_column(
-    df,
-    [
-        "store_location",
-        "store location",
-        "storelocation",
-        "location"
-    ]
-)
-
-store_id_col = find_column(
-    df,
-    [
-        "store_id",
-        "store id",
-        "storeid"
-    ]
-)
-
-product_category_col = find_column(
-    df,
-    [
-        "product_category",
-        "product category",
-        "productcategory"
-    ]
-)
-
-product_type_col = find_column(
-    df,
-    [
-        "product_type",
-        "product type",
-        "producttype"
-    ]
+st.sidebar.write(
+    f"**Date Range:** "
+    f"{df['transaction_date'].min().date()} "
+    f"to "
+    f"{df['transaction_date'].max().date()}"
 )
 
 
 # ============================================================
-# VALIDATE REQUIRED COLUMNS
+# SIDEBAR FILTERS
 # ============================================================
 
-missing_columns = []
-
-if date_col is None:
-    missing_columns.append("Date")
-
-if time_col is None:
-    missing_columns.append("Time")
-
-if quantity_col is None:
-    missing_columns.append("Transaction Quantity")
-
-if price_col is None:
-    missing_columns.append("Unit Price")
-
-if store_location_col is None:
-    missing_columns.append("Store Location")
+st.sidebar.header("🔎 Dashboard Filters")
 
 
-if missing_columns:
+# ------------------------------------------------------------
+# DATE FILTER
+# ------------------------------------------------------------
 
-    st.error(
-        "❌ Required columns are missing from the dataset."
-    )
+min_date = df["transaction_date"].min().date()
+max_date = df["transaction_date"].max().date()
 
-    st.write(
-        "Missing columns:"
-    )
-
-    for column in missing_columns:
-        st.write(f"- {column}")
-
-    st.write(
-        "Available columns:"
-    )
-
-    st.write(
-        list(df.columns)
-    )
-
-    st.stop()
-
-
-# ============================================================
-# DATA TYPE CONVERSION
-# ============================================================
-
-df[date_col] = pd.to_datetime(
-    df[date_col],
-    errors="coerce"
-)
-
-df[quantity_col] = pd.to_numeric(
-    df[quantity_col],
-    errors="coerce"
-)
-
-df[price_col] = pd.to_numeric(
-    df[price_col],
-    errors="coerce"
+date_range = st.sidebar.date_input(
+    "Transaction Date Range",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
 )
 
 
-# ============================================================
-# REMOVE INVALID ROWS
-# ============================================================
+if isinstance(date_range, tuple) and len(date_range) == 2:
 
-df = df.dropna(
-    subset=[
-        date_col,
-        time_col,
-        quantity_col,
-        price_col,
-        store_location_col
-    ]
-).copy()
+    start_date = date_range[0]
+    end_date = date_range[1]
+
+else:
+
+    start_date = date_range
+    end_date = date_range
 
 
-# ============================================================
-# CONVERT TIME
-# ============================================================
-
-def extract_hour(value):
-
-    try:
-
-        if isinstance(value, pd.Timestamp):
-            return value.hour
-
-        if hasattr(value, "hour"):
-            return value.hour
-
-        time_string = str(value)
-
-        parsed = pd.to_datetime(
-            time_string,
-            errors="coerce"
-        )
-
-        if pd.notna(parsed):
-            return parsed.hour
-
-    except Exception:
-        pass
-
-    return np.nan
-
-
-df["hour"] = df[time_col].apply(
-    extract_hour
-)
-
-
-df = df.dropna(
-    subset=["hour"]
-).copy()
-
-
-df["hour"] = df["hour"].astype(int)
-
-
-# ============================================================
-# FEATURE ENGINEERING
-# ============================================================
-
-df["revenue"] = (
-    df[quantity_col] *
-    df[price_col]
-)
-
-
-df["day_of_week"] = (
-    df[date_col]
-    .dt.day_name()
-)
-
-
-df["day_number"] = (
-    df[date_col]
-    .dt.dayofweek
-)
-
-
-df["year"] = (
-    df[date_col]
-    .dt.year
-)
-
-
-df["month"] = (
-    df[date_col]
-    .dt.month
-)
-
-
-df["month_name"] = (
-    df[date_col]
-    .dt.month_name()
-)
-
-
-df["date_only"] = (
-    df[date_col]
-    .dt.date
-)
-
-
-# ============================================================
-# TIME BUCKET
-# ============================================================
-
-def get_time_bucket(hour):
-
-    if 6 <= hour <= 11:
-        return "Morning"
-
-    elif 12 <= hour <= 16:
-        return "Afternoon"
-
-    elif 17 <= hour <= 21:
-        return "Evening"
-
-    else:
-        return "Late Hours"
-
-
-df["time_bucket"] = df["hour"].apply(
-    get_time_bucket
-)
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-st.sidebar.title(
-    "☕ Dashboard Controls"
-)
-
-st.sidebar.markdown(
-    "---"
-)
-
-
-# ============================================================
+# ------------------------------------------------------------
 # STORE FILTER
-# ============================================================
+# ------------------------------------------------------------
 
-store_options = sorted(
-    df[store_location_col]
+stores = [
+    "All"
+] + sorted(
+    df["store_location"]
     .dropna()
-    .astype(str)
     .unique()
     .tolist()
 )
 
-
-selected_stores = st.sidebar.multiselect(
-    "🏪 Select Store Location",
-    options=store_options,
-    default=store_options
+selected_store = st.sidebar.selectbox(
+    "Store Location",
+    stores
 )
 
 
-# ============================================================
+# ------------------------------------------------------------
 # DAY OF WEEK FILTER
-# ============================================================
+# ------------------------------------------------------------
 
 day_order = [
     "Monday",
@@ -527,882 +300,1822 @@ day_order = [
     "Sunday"
 ]
 
+days = ["All"] + day_order
 
-available_days = [
-    day for day in day_order
-    if day in df["day_of_week"].unique()
-]
-
-
-selected_days = st.sidebar.multiselect(
-    "📅 Select Day of Week",
-    options=available_days,
-    default=available_days
+selected_day = st.sidebar.selectbox(
+    "Day of Week",
+    days
 )
 
 
-# ============================================================
-# HOUR RANGE FILTER
-# ============================================================
+# ------------------------------------------------------------
+# HOUR FILTER
+# ------------------------------------------------------------
 
-selected_hour_range = st.sidebar.slider(
-    "⏰ Select Hour Range",
+hour_range = st.sidebar.slider(
+    "Hour Range",
     min_value=0,
     max_value=23,
-    value=(0, 23),
-    step=1
+    value=(0, 23)
 )
 
 
-# ============================================================
-# METRIC SELECTOR
-# ============================================================
+# ------------------------------------------------------------
+# REVENUE / QUANTITY TOGGLE
+# ------------------------------------------------------------
 
-metric_option = st.sidebar.radio(
-    "📊 Select Metric",
+metric = st.sidebar.radio(
+    "Select Analysis Metric",
     [
         "Revenue",
-        "Transaction Quantity"
+        "Quantity"
     ]
 )
 
 
 # ============================================================
-# APPLY FILTERS
+# FILTER DATA
 # ============================================================
 
-filtered_df = df[
-    df[store_location_col]
-    .astype(str)
-    .isin(selected_stores)
+filtered = df[
+    (df["transaction_date"].dt.date >= start_date)
+    &
+    (df["transaction_date"].dt.date <= end_date)
+    &
+    (df["hour"] >= hour_range[0])
+    &
+    (df["hour"] <= hour_range[1])
 ].copy()
 
 
-filtered_df = filtered_df[
-    filtered_df["day_of_week"]
-    .isin(selected_days)
-].copy()
+# Store filter
+
+if selected_store != "All":
+
+    filtered = filtered[
+        filtered["store_location"]
+        == selected_store
+    ]
 
 
-filtered_df = filtered_df[
-    (filtered_df["hour"] >= selected_hour_range[0]) &
-    (filtered_df["hour"] <= selected_hour_range[1])
-].copy()
+# Day filter
 
+if selected_day != "All":
 
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title(
-    "☕ Afficionado Coffee Roasters"
-)
-
-st.subheader(
-    "Sales Trend and Time-Based Performance Analysis"
-)
-
-st.markdown(
-    """
-    This interactive dashboard analyses coffee shop transaction
-    data to uncover sales trends, customer demand patterns,
-    peak hours, day-of-week performance, and store-level behaviour.
-    """
-)
-
-
-st.markdown("---")
+    filtered = filtered[
+        filtered["day_of_week"]
+        == selected_day
+    ]
 
 
 # ============================================================
-# NO DATA WARNING
+# EMPTY DATA CHECK
 # ============================================================
 
-if filtered_df.empty:
+if filtered.empty:
 
     st.warning(
-        "⚠️ No data available for the selected filters."
+        "⚠️ No transactions match the selected filters."
     )
 
     st.stop()
 
 
 # ============================================================
+# METRIC SELECTION
+# ============================================================
+
+if metric == "Revenue":
+
+    value_col = "revenue"
+
+    value_label = "Revenue (£)"
+
+else:
+
+    value_col = "transaction_qty"
+
+    value_label = "Quantity Sold (Items)"
+
+
+# ============================================================
 # KPI CALCULATIONS
 # ============================================================
 
-total_revenue = filtered_df["revenue"].sum()
-
-total_quantity = filtered_df[quantity_col].sum()
-
-total_transactions = (
-    filtered_df[transaction_id_col].nunique()
-    if transaction_id_col is not None
-    else len(filtered_df)
+total_revenue = (
+    filtered["revenue"].sum()
 )
 
-average_transaction_value = (
-    total_revenue /
-    total_transactions
+total_transactions = (
+    filtered["transaction_id"]
+    .nunique()
+)
+
+total_quantity = (
+    filtered["transaction_qty"]
+    .sum()
+)
+
+average_order_value = (
+
+    total_revenue
+    / total_transactions
+
     if total_transactions > 0
     else 0
 )
 
 
-# ============================================================
-# KPI CARDS
-# ============================================================
+# Peak hour
 
-col1, col2, col3, col4 = st.columns(4)
+hourly_transactions = (
 
-
-with col1:
-
-    st.metric(
-        "💰 Total Revenue",
-        format_currency(total_revenue)
-    )
-
-
-with col2:
-
-    st.metric(
-        "📦 Total Quantity",
-        format_number(total_quantity)
-    )
-
-
-with col3:
-
-    st.metric(
-        "🧾 Total Transactions",
-        format_number(total_transactions)
-    )
-
-
-with col4:
-
-    st.metric(
-        "💳 Avg. Transaction Value",
-        format_currency(
-            average_transaction_value
-        )
-    )
-
-
-st.markdown("---")
-
-
-# ============================================================
-# SALES TREND
-# ============================================================
-
-st.header(
-    "📈 Overall Sales Trend"
+    filtered
+    .groupby("hour")
+    ["transaction_id"]
+    .nunique()
 )
 
 
-daily_sales = (
-    filtered_df
-    .groupby("date_only")
-    .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum")
+peak_hour = int(
+    hourly_transactions.idxmax()
+)
+
+
+# Best day
+
+daily_revenue = (
+
+    filtered
+    .groupby("transaction_date")
+    ["revenue"]
+    .sum()
+)
+
+best_day_date = (
+    daily_revenue.idxmax()
+)
+
+best_day_revenue = (
+    daily_revenue.max()
+)
+
+
+# Best day of week
+
+dow_revenue = (
+
+    filtered
+    .groupby(
+        [
+            "day_of_week_num",
+            "day_of_week"
+        ]
     )
+    ["revenue"]
+    .sum()
+)
+
+best_dow = (
+    dow_revenue
+    .idxmax()[1]
+)
+
+
+# ============================================================
+# KPI DISPLAY
+# ============================================================
+
+st.markdown("---")
+
+st.header("📊 Key Performance Indicators")
+
+
+k1, k2, k3, k4, k5 = st.columns(5)
+
+
+with k1:
+
+    st.metric(
+        "Total Revenue",
+        f"£{total_revenue:,.2f}"
+    )
+
+
+with k2:
+
+    st.metric(
+        "Transactions",
+        f"{total_transactions:,}"
+    )
+
+
+with k3:
+
+    st.metric(
+        "Quantity Sold",
+        f"{total_quantity:,}"
+    )
+
+
+with k4:
+
+    st.metric(
+        "Peak Transaction Hour",
+        f"{peak_hour:02d}:00"
+    )
+
+
+with k5:
+
+    st.metric(
+        "Best Day of Week",
+        best_dow
+    )
+
+
+# ============================================================
+# MODULE 1
+# OVERALL SALES TREND
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "1️⃣ Overall Sales Trend Analysis"
+)
+
+
+# ------------------------------------------------------------
+# DAILY TREND
+# ------------------------------------------------------------
+
+daily = (
+
+    filtered
+    .groupby("transaction_date")
+    .agg(
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        )
+    )
+
     .reset_index()
 )
 
 
-if metric_option == "Revenue":
+fig_daily = px.line(
 
-    fig = px.line(
-        daily_sales,
-        x="date_only",
-        y="revenue",
-        markers=True,
-        title="Daily Revenue Trend",
-        labels={
-            "date_only": "Date",
-            "revenue": "Revenue (£)"
-        }
+    daily,
+
+    x="transaction_date",
+
+    y=value_col,
+
+    markers=True,
+
+    title=(
+        f"Daily {value_label} Trend"
     )
-
-    fig.update_yaxes(
-        tickprefix="£",
-        separatethousands=True
-    )
-
-else:
-
-    fig = px.line(
-        daily_sales,
-        x="date_only",
-        y="quantity",
-        markers=True,
-        title="Daily Transaction Quantity Trend",
-        labels={
-            "date_only": "Date",
-            "quantity": "Transaction Quantity"
-        }
-    )
-
-    fig.update_yaxes(
-        separatethousands=True
-    )
+)
 
 
-fig.update_layout(
-    hovermode="x unified"
+fig_daily.update_layout(
+
+    xaxis_title="Transaction Date",
+
+    yaxis_title=value_label
 )
 
 
 st.plotly_chart(
-    fig,
+
+    fig_daily,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# WEEKLY TREND
+# ------------------------------------------------------------
+
+weekly = (
+
+    filtered
+    .groupby("week_start")
+    .agg(
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        )
+    )
+
+    .reset_index()
+)
+
+
+fig_weekly = px.bar(
+
+    weekly,
+
+    x="week_start",
+
+    y=value_col,
+
+    title=(
+        f"Weekly {value_label} Aggregation"
+    )
+)
+
+
+fig_weekly.update_layout(
+
+    xaxis_title="Week Starting",
+
+    yaxis_title=value_label
+)
+
+
+st.plotly_chart(
+
+    fig_weekly,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# TREND INTERPRETATION
+# ------------------------------------------------------------
+
+if len(daily) >= 2:
+
+    x = np.arange(
+        len(daily)
+    )
+
+    y = daily[
+        value_col
+    ].values
+
+    slope = np.polyfit(
+        x,
+        y,
+        1
+    )[0]
+
+
+    if slope > 0:
+
+        st.success(
+            "📈 Overall trend: "
+            "The selected metric shows an upward direction "
+            "over the selected period."
+        )
+
+
+    elif slope < 0:
+
+        st.warning(
+            "📉 Overall trend: "
+            "The selected metric shows a downward direction "
+            "over the selected period."
+        )
+
+
+    else:
+
+        st.info(
+            "➡️ Overall trend: "
+            "The selected metric is broadly stable "
+            "over the selected period."
+        )
+
+
+# ============================================================
+# MODULE 2
+# DAY OF WEEK PERFORMANCE
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "2️⃣ Day-of-Week Performance Analysis"
+)
+
+
+dow = (
+
+    filtered
+    .groupby(
+        [
+            "day_of_week_num",
+            "day_of_week"
+        ]
+    )
+    .agg(
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        )
+    )
+
+    .reset_index()
+
+    .sort_values(
+        "day_of_week_num"
+    )
+)
+
+
+# ------------------------------------------------------------
+# REVENUE / QUANTITY BY DAY
+# ------------------------------------------------------------
+
+fig_dow = px.bar(
+
+    dow,
+
+    x="day_of_week",
+
+    y=value_col,
+
+    category_orders={
+        "day_of_week":
+        day_order
+    },
+
+    text_auto=".2s",
+
+    title=(
+        f"{value_label} by Day of Week"
+    )
+)
+
+
+fig_dow.update_layout(
+
+    xaxis_title="Day of Week",
+
+    yaxis_title=value_label
+)
+
+
+st.plotly_chart(
+
+    fig_dow,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# TRANSACTION COUNT BY DAY
+# ------------------------------------------------------------
+
+fig_dow_transactions = px.bar(
+
+    dow,
+
+    x="day_of_week",
+
+    y="transactions",
+
+    category_orders={
+        "day_of_week":
+        day_order
+    },
+
+    text_auto=".2s",
+
+    title=(
+        "Transaction Count by Day of Week"
+    )
+)
+
+
+fig_dow_transactions.update_layout(
+
+    xaxis_title="Day of Week",
+
+    yaxis_title="Number of Transactions"
+)
+
+
+st.plotly_chart(
+
+    fig_dow_transactions,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# AVERAGE DAILY PERFORMANCE
+# ------------------------------------------------------------
+
+weekday_stats = (
+
+    filtered
+
+    .groupby(
+        [
+            "day_of_week_num",
+            "day_of_week"
+        ]
+    )
+
+    .agg(
+
+        total_revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        total_transactions=(
+            "transaction_id",
+            "nunique"
+        ),
+
+        days_observed=(
+            "transaction_date",
+            "nunique"
+        )
+    )
+
+    .reset_index()
+)
+
+
+weekday_stats[
+    "avg_revenue_per_day"
+] = (
+
+    weekday_stats[
+        "total_revenue"
+    ]
+
+    /
+
+    weekday_stats[
+        "days_observed"
+    ]
+)
+
+
+weekday_stats[
+    "avg_transactions_per_day"
+] = (
+
+    weekday_stats[
+        "total_transactions"
+    ]
+
+    /
+
+    weekday_stats[
+        "days_observed"
+    ]
+)
+
+
+weekday_stats = (
+
+    weekday_stats
+
+    .sort_values(
+        "day_of_week_num"
+    )
+)
+
+
+c1, c2 = st.columns(2)
+
+
+with c1:
+
+    fig_avg_rev = px.bar(
+
+        weekday_stats,
+
+        x="day_of_week",
+
+        y="avg_revenue_per_day",
+
+        category_orders={
+            "day_of_week":
+            day_order
+        },
+
+        title=(
+            "Average Revenue per Calendar Day"
+        )
+    )
+
+    fig_avg_rev.update_layout(
+
+        xaxis_title="Day",
+
+        yaxis_title="Average Revenue (£)"
+    )
+
+    st.plotly_chart(
+
+        fig_avg_rev,
+
+        use_container_width=True
+    )
+
+
+with c2:
+
+    fig_avg_txn = px.bar(
+
+        weekday_stats,
+
+        x="day_of_week",
+
+        y="avg_transactions_per_day",
+
+        category_orders={
+            "day_of_week":
+            day_order
+        },
+
+        title=(
+            "Average Transactions per Calendar Day"
+        )
+    )
+
+    fig_avg_txn.update_layout(
+
+        xaxis_title="Day",
+
+        yaxis_title="Average Transactions"
+    )
+
+    st.plotly_chart(
+
+        fig_avg_txn,
+
+        use_container_width=True
+    )
+
+
+# ------------------------------------------------------------
+# WEEKDAY VS WEEKEND
+# ------------------------------------------------------------
+
+filtered["period_type"] = np.where(
+
+    filtered[
+        "is_weekend"
+    ],
+
+    "Weekend",
+
+    "Weekday"
+)
+
+
+weekday_weekend = (
+
+    filtered
+
+    .groupby(
+        "period_type"
+    )
+
+    .agg(
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        )
+    )
+
+    .reset_index()
+)
+
+
+fig_weekend = px.bar(
+
+    weekday_weekend,
+
+    x="period_type",
+
+    y=value_col,
+
+    text_auto=".2s",
+
+    title=(
+        f"Weekday vs Weekend "
+        f"{value_label}"
+    )
+)
+
+
+st.plotly_chart(
+
+    fig_weekend,
+
     use_container_width=True
 )
 
 
 # ============================================================
-# DAY OF WEEK ANALYSIS
+# MODULE 3
+# TIME OF DAY ANALYSIS
 # ============================================================
+
+st.markdown("---")
 
 st.header(
-    "📅 Day-of-Week Performance"
+    "3️⃣ Time-of-Day Demand Analysis"
 )
 
 
-day_summary = (
-    filtered_df
-    .groupby(
-        ["day_of_week", "day_number"]
-    )
-    .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum"),
-        transactions=(
-            transaction_id_col,
-            "nunique"
-        ) if transaction_id_col else (
-            quantity_col,
-            "count"
-        )
-    )
-    .reset_index()
-)
+# ------------------------------------------------------------
+# HOURLY DATA
+# ------------------------------------------------------------
 
+hourly = (
 
-day_summary = day_summary.sort_values(
-    "day_number"
-)
+    filtered
 
-
-col1, col2 = st.columns(2)
-
-
-with col1:
-
-    if metric_option == "Revenue":
-
-        fig_day = px.bar(
-            day_summary,
-            x="day_of_week",
-            y="revenue",
-            title="Revenue by Day of Week",
-            labels={
-                "day_of_week": "Day",
-                "revenue": "Revenue (£)"
-            },
-            text_auto=".2s"
-        )
-
-        fig_day.update_yaxes(
-            tickprefix="£",
-            separatethousands=True
-        )
-
-    else:
-
-        fig_day = px.bar(
-            day_summary,
-            x="day_of_week",
-            y="quantity",
-            title="Transaction Quantity by Day of Week",
-            labels={
-                "day_of_week": "Day",
-                "quantity": "Transaction Quantity"
-            },
-            text_auto=".2s"
-        )
-
-
-    st.plotly_chart(
-        fig_day,
-        use_container_width=True
-    )
-
-
-with col2:
-
-    fig_transactions = px.bar(
-        day_summary,
-        x="day_of_week",
-        y="transactions",
-        title="Transactions by Day of Week",
-        labels={
-            "day_of_week": "Day",
-            "transactions": "Number of Transactions"
-        },
-        text_auto=".2s"
-    )
-
-
-    st.plotly_chart(
-        fig_transactions,
-        use_container_width=True
-    )
-
-
-# ============================================================
-# HOURLY DEMAND
-# ============================================================
-
-st.header(
-    "⏰ Time-of-Day Demand Analysis"
-)
-
-
-hour_summary = (
-    filtered_df
     .groupby("hour")
+
     .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum"),
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
         transactions=(
-            transaction_id_col,
+            "transaction_id",
             "nunique"
-        ) if transaction_id_col else (
-            quantity_col,
-            "count"
         )
     )
+
     .reset_index()
 )
 
 
-col1, col2 = st.columns(2)
+# ------------------------------------------------------------
+# HOURLY TRANSACTION VOLUME
+# ------------------------------------------------------------
 
+fig_hour_transactions = px.line(
 
-with col1:
+    hourly,
 
-    if metric_option == "Revenue":
+    x="hour",
 
-        fig_hour = px.bar(
-            hour_summary,
-            x="hour",
-            y="revenue",
-            title="Hourly Revenue Distribution",
-            labels={
-                "hour": "Hour of Day",
-                "revenue": "Revenue (£)"
-            }
-        )
+    y="transactions",
 
-        fig_hour.update_yaxes(
-            tickprefix="£",
-            separatethousands=True
-        )
+    markers=True,
 
-    else:
-
-        fig_hour = px.bar(
-            hour_summary,
-            x="hour",
-            y="quantity",
-            title="Hourly Transaction Quantity",
-            labels={
-                "hour": "Hour of Day",
-                "quantity": "Transaction Quantity"
-            }
-        )
-
-
-    st.plotly_chart(
-        fig_hour,
-        use_container_width=True
+    title=(
+        "Hourly Transaction Volume Curve"
     )
-
-
-with col2:
-
-    fig_transaction_hour = px.line(
-        hour_summary,
-        x="hour",
-        y="transactions",
-        markers=True,
-        title="Hourly Transaction Volume",
-        labels={
-            "hour": "Hour of Day",
-            "transactions": "Number of Transactions"
-        }
-    )
-
-
-    st.plotly_chart(
-        fig_transaction_hour,
-        use_container_width=True
-    )
-
-
-# ============================================================
-# PEAK HOUR ANALYSIS
-# ============================================================
-
-st.subheader(
-    "🔥 Peak and Off-Peak Hours"
 )
 
 
-if not hour_summary.empty:
+fig_hour_transactions.update_layout(
 
-    peak_row = hour_summary.loc[
-        hour_summary["transactions"].idxmax()
-    ]
+    xaxis_title="Hour of Day (0–23)",
 
-    slow_row = hour_summary.loc[
-        hour_summary["transactions"].idxmin()
-    ]
-
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        st.success(
-            f"🔥 Peak Hour: {int(peak_row['hour']):02d}:00 "
-            f"with {format_number(peak_row['transactions'])} transactions."
-        )
-
-
-    with col2:
-
-        st.info(
-            f"📉 Lowest Activity Hour: "
-            f"{int(slow_row['hour']):02d}:00 "
-            f"with {format_number(slow_row['transactions'])} transactions."
-        )
-
-
-# ============================================================
-# TIME BUCKET ANALYSIS
-# ============================================================
-
-st.header(
-    "🕐 Demand by Time Period"
+    yaxis_title="Number of Transactions"
 )
 
+
+st.plotly_chart(
+
+    fig_hour_transactions,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# HOURLY REVENUE / QUANTITY
+# ------------------------------------------------------------
+
+fig_hour_value = px.bar(
+
+    hourly,
+
+    x="hour",
+
+    y=value_col,
+
+    text_auto=".2s",
+
+    title=(
+        f"Hourly {value_label} Distribution"
+    )
+)
+
+
+fig_hour_value.update_layout(
+
+    xaxis_title="Hour of Day (0–23)",
+
+    yaxis_title=value_label
+)
+
+
+st.plotly_chart(
+
+    fig_hour_value,
+
+    use_container_width=True
+)
+
+
+# ------------------------------------------------------------
+# TIME BUCKET
+# ------------------------------------------------------------
 
 bucket_order = [
+
     "Morning",
+
     "Afternoon",
+
     "Evening",
+
     "Late Hours"
 ]
 
 
-bucket_summary = (
-    filtered_df
-    .groupby("time_bucket")
+bucket = (
+
+    filtered
+
+    .groupby(
+        "time_bucket"
+    )
+
     .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum"),
-        transactions=(
-            transaction_id_col,
-            "nunique"
-        ) if transaction_id_col else (
-            quantity_col,
-            "count"
-        )
-    )
-    .reset_index()
-)
 
-
-bucket_summary["time_bucket"] = pd.Categorical(
-    bucket_summary["time_bucket"],
-    categories=bucket_order,
-    ordered=True
-)
-
-
-bucket_summary = bucket_summary.sort_values(
-    "time_bucket"
-)
-
-
-if metric_option == "Revenue":
-
-    fig_bucket = px.bar(
-        bucket_summary,
-        x="time_bucket",
-        y="revenue",
-        title="Revenue by Time Period",
-        labels={
-            "time_bucket": "Time Period",
-            "revenue": "Revenue (£)"
-        },
-        text_auto=".2s"
-    )
-
-    fig_bucket.update_yaxes(
-        tickprefix="£",
-        separatethousands=True
-    )
-
-else:
-
-    fig_bucket = px.bar(
-        bucket_summary,
-        x="time_bucket",
-        y="quantity",
-        title="Transaction Quantity by Time Period",
-        labels={
-            "time_bucket": "Time Period",
-            "quantity": "Transaction Quantity"
-        },
-        text_auto=".2s"
-    )
-
-
-st.plotly_chart(
-    fig_bucket,
-    use_container_width=True
-)
-
-
-# ============================================================
-# STORE COMPARISON
-# ============================================================
-
-st.header(
-    "🏪 Store Location Comparison"
-)
-
-
-store_summary = (
-    filtered_df
-    .groupby(store_location_col)
-    .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum"),
-        transactions=(
-            transaction_id_col,
-            "nunique"
-        ) if transaction_id_col else (
-            quantity_col,
-            "count"
-        )
-    )
-    .reset_index()
-)
-
-
-if metric_option == "Revenue":
-
-    fig_store = px.bar(
-        store_summary,
-        x=store_location_col,
-        y="revenue",
-        title="Revenue by Store Location",
-        labels={
-            store_location_col: "Store Location",
-            "revenue": "Revenue (£)"
-        },
-        text_auto=".2s"
-    )
-
-    fig_store.update_yaxes(
-        tickprefix="£",
-        separatethousands=True
-    )
-
-else:
-
-    fig_store = px.bar(
-        store_summary,
-        x=store_location_col,
-        y="quantity",
-        title="Transaction Quantity by Store Location",
-        labels={
-            store_location_col: "Store Location",
-            "quantity": "Transaction Quantity"
-        },
-        text_auto=".2s"
-    )
-
-
-st.plotly_chart(
-    fig_store,
-    use_container_width=True
-)
-
-
-# ============================================================
-# STORE × HOUR HEATMAP
-# ============================================================
-
-st.header(
-    "🔥 Store-Level Hourly Demand Heatmap"
-)
-
-
-heatmap_data = (
-    filtered_df
-    .pivot_table(
-        index=store_location_col,
-        columns="hour",
-        values=(
-            "revenue"
-            if metric_option == "Revenue"
-            else quantity_col
+        revenue=(
+            "revenue",
+            "sum"
         ),
-        aggfunc="sum",
-        fill_value=0
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        )
+    )
+
+    .reindex(
+        bucket_order
+    )
+
+    .reset_index()
+)
+
+
+fig_bucket = px.bar(
+
+    bucket,
+
+    x="time_bucket",
+
+    y=value_col,
+
+    category_orders={
+
+        "time_bucket":
+
+        bucket_order
+
+    },
+
+    text_auto=".2s",
+
+    title=(
+
+        f"{value_label} "
+
+        "by Time Bucket"
+
     )
 )
 
 
-if not heatmap_data.empty:
+fig_bucket.update_layout(
 
-    if metric_option == "Revenue":
+    xaxis_title="Time Bucket",
 
-        heatmap_title = (
-            "Revenue Heatmap by Store and Hour"
-        )
-
-        colorbar_title = "Revenue (£)"
-
-    else:
-
-        heatmap_title = (
-            "Transaction Quantity Heatmap by Store and Hour"
-        )
-
-        colorbar_title = "Quantity"
+    yaxis_title=value_label
+)
 
 
-    fig_heatmap = px.imshow(
-        heatmap_data,
-        aspect="auto",
-        title=heatmap_title,
-        labels={
-            "x": "Hour of Day",
-            "y": "Store Location",
-            "color": colorbar_title
-        }
-    )
+st.plotly_chart(
+
+    fig_bucket,
+
+    use_container_width=True
+)
 
 
-    st.plotly_chart(
-        fig_heatmap,
-        use_container_width=True
-    )
+# ------------------------------------------------------------
+# PEAK / LOW HOURS
+# ------------------------------------------------------------
+
+peak_hour_row = (
+
+    hourly.loc[
+
+        hourly[
+            "transactions"
+        ].idxmax()
+
+    ]
+)
+
+
+slow_hour_row = (
+
+    hourly.loc[
+
+        hourly[
+            "transactions"
+        ].idxmin()
+
+    ]
+)
+
+
+st.info(
+
+    f"""
+    🔥 **Peak transaction hour:**
+    {int(peak_hour_row['hour']):02d}:00
+
+    Transactions:
+    {int(peak_hour_row['transactions']):,}
+
+    💤 **Lowest observed transaction hour:**
+    {int(slow_hour_row['hour']):02d}:00
+
+    Transactions:
+    {int(slow_hour_row['transactions']):,}
+    """
+)
 
 
 # ============================================================
-# STORE × DAY ANALYSIS
+# MODULE 4
+# CROSS LOCATION TEMPORAL COMPARISON
 # ============================================================
+
+st.markdown("---")
 
 st.header(
-    "📊 Store and Day-of-Week Comparison"
+    "4️⃣ Cross-Location Temporal Comparison"
 )
 
 
-store_day = (
-    filtered_df
+# ------------------------------------------------------------
+# STORE-WISE HOURLY ANALYSIS
+# ------------------------------------------------------------
+
+store_hour = (
+
+    filtered
+
     .groupby(
         [
-            store_location_col,
-            "day_of_week",
-            "day_number"
+            "store_location",
+            "hour"
         ]
     )
+
     .agg(
-        revenue=("revenue", "sum"),
-        quantity=(quantity_col, "sum"),
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
         transactions=(
-            transaction_id_col,
+            "transaction_id",
             "nunique"
-        ) if transaction_id_col else (
-            quantity_col,
-            "count"
         )
     )
+
     .reset_index()
 )
 
 
-store_day = store_day.sort_values(
-    "day_number"
+fig_store_hour = px.line(
+
+    store_hour,
+
+    x="hour",
+
+    y=value_col,
+
+    color="store_location",
+
+    markers=True,
+
+    title=(
+
+        f"Store-wise Hourly "
+
+        f"{value_label}"
+
+    )
 )
 
 
-if metric_option == "Revenue":
+fig_store_hour.update_layout(
 
-    fig_store_day = px.bar(
-        store_day,
-        x="day_of_week",
-        y="revenue",
-        color=store_location_col,
-        barmode="group",
-        title="Revenue by Day and Store Location",
-        labels={
-            "day_of_week": "Day",
-            "revenue": "Revenue (£)",
-            store_location_col: "Store"
-        }
-    )
+    xaxis_title="Hour of Day",
 
-    fig_store_day.update_yaxes(
-        tickprefix="£",
-        separatethousands=True
-    )
-
-else:
-
-    fig_store_day = px.bar(
-        store_day,
-        x="day_of_week",
-        y="quantity",
-        color=store_location_col,
-        barmode="group",
-        title="Transaction Quantity by Day and Store Location",
-        labels={
-            "day_of_week": "Day",
-            "quantity": "Transaction Quantity",
-            store_location_col: "Store"
-        }
-    )
+    yaxis_title=value_label
+)
 
 
 st.plotly_chart(
-    fig_store_day,
+
+    fig_store_hour,
+
     use_container_width=True
 )
 
 
 # ============================================================
-# PRODUCT CATEGORY ANALYSIS
+# TRANSACTION COUNT HEATMAP
 # ============================================================
 
-if product_category_col is not None:
-
-    st.header(
-        "☕ Product Category Performance"
-    )
-
-
-    product_summary = (
-        filtered_df
-        .groupby(product_category_col)
-        .agg(
-            revenue=("revenue", "sum"),
-            quantity=(quantity_col, "sum")
-        )
-        .reset_index()
-        .sort_values(
-            "revenue",
-            ascending=False
-        )
-    )
-
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        fig_product_revenue = px.bar(
-            product_summary.head(15),
-            x="revenue",
-            y=product_category_col,
-            orientation="h",
-            title="Top Product Categories by Revenue",
-            labels={
-                "revenue": "Revenue (£)",
-                product_category_col: "Product Category"
-            }
-        )
-
-        fig_product_revenue.update_xaxes(
-            tickprefix="£",
-            separatethousands=True
-        )
-
-
-        st.plotly_chart(
-            fig_product_revenue,
-            use_container_width=True
-        )
-
-
-    with col2:
-
-        fig_product_quantity = px.bar(
-            product_summary.head(15),
-            x="quantity",
-            y=product_category_col,
-            orientation="h",
-            title="Top Product Categories by Quantity",
-            labels={
-                "quantity": "Transaction Quantity",
-                product_category_col: "Product Category"
-            }
-        )
-
-
-        st.plotly_chart(
-            fig_product_quantity,
-            use_container_width=True
-        )
-
-
-# ============================================================
-# DATA SUMMARY
-# ============================================================
-
-st.header(
-    "📋 Filtered Data Summary"
+st.subheader(
+    "📍 Store × Hour Transaction Count Heatmap"
 )
 
 
-summary_col1, summary_col2, summary_col3 = st.columns(3)
+heatmap_transactions = (
+
+    filtered
+
+    .pivot_table(
+
+        index="store_location",
+
+        columns="hour",
+
+        values="transaction_id",
+
+        aggfunc="nunique",
+
+        fill_value=0
+
+    )
+)
 
 
-with summary_col1:
+fig_transaction_heatmap = px.imshow(
 
-    st.write(
-        f"**Rows Analysed:** "
-        f"{format_number(len(filtered_df))}"
+    heatmap_transactions,
+
+    aspect="auto",
+
+    text_auto=".0f",
+
+    title=(
+
+        "Hourly Transaction Count "
+
+        "Heatmap by Store"
+
+    ),
+
+    labels={
+
+        "x":
+        "Hour of Day",
+
+        "y":
+        "Store Location",
+
+        "color":
+        "Transactions"
+
+    }
+)
+
+
+fig_transaction_heatmap.update_layout(
+
+    xaxis_title=
+    "Hour of Day (0–23)",
+
+    yaxis_title=
+    "Store Location"
+)
+
+
+st.plotly_chart(
+
+    fig_transaction_heatmap,
+
+    use_container_width=True
+)
+
+
+# ============================================================
+# REVENUE HEATMAP
+# ============================================================
+
+st.subheader(
+    "💰 Store × Hour Revenue Heatmap"
+)
+
+
+heatmap_revenue = (
+
+    filtered
+
+    .pivot_table(
+
+        index="store_location",
+
+        columns="hour",
+
+        values="revenue",
+
+        aggfunc="sum",
+
+        fill_value=0
+
+    )
+)
+
+
+fig_revenue_heatmap = px.imshow(
+
+    heatmap_revenue,
+
+    aspect="auto",
+
+    text_auto=".2s",
+
+    title=(
+
+        "Hourly Revenue "
+
+        "Heatmap by Store"
+
+    ),
+
+    labels={
+
+        "x":
+        "Hour of Day",
+
+        "y":
+        "Store Location",
+
+        "color":
+        "Revenue (£)"
+
+    }
+)
+
+
+fig_revenue_heatmap.update_layout(
+
+    xaxis_title=
+    "Hour of Day (0–23)",
+
+    yaxis_title=
+    "Store Location"
+)
+
+
+st.plotly_chart(
+
+    fig_revenue_heatmap,
+
+    use_container_width=True
+)
+
+
+# ============================================================
+# STORE SPECIFIC PEAK HOURS
+# ============================================================
+
+st.subheader(
+    "📌 Location-Specific Peak Hours"
+)
+
+
+store_peak_rows = (
+
+    store_hour.loc[
+
+        store_hour
+
+        .groupby(
+            "store_location"
+        )
+
+        [
+            "transactions"
+        ]
+
+        .idxmax()
+
+    ]
+
+    .sort_values(
+        "store_location"
+    )
+)
+
+
+store_peak_display = (
+
+    store_peak_rows
+
+    .rename(
+
+        columns={
+
+            "store_location":
+            "Store Location",
+
+            "hour":
+            "Peak Hour",
+
+            "transactions":
+            "Peak-Hour Transactions"
+
+        }
+
+    )
+
+)
+
+
+st.dataframe(
+
+    store_peak_display,
+
+    use_container_width=True,
+
+    hide_index=True
+)
+
+
+# ============================================================
+# STORE DAILY TREND
+# ============================================================
+
+st.subheader(
+    "📈 Store-Level Daily Revenue Trends"
+)
+
+
+store_daily = (
+
+    filtered
+
+    .groupby(
+
+        [
+            "transaction_date",
+
+            "store_location"
+
+        ]
+
+    )
+
+    .agg(
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        )
+    )
+
+    .reset_index()
+)
+
+
+fig_store_daily = px.line(
+
+    store_daily,
+
+    x="transaction_date",
+
+    y="revenue",
+
+    color="store_location",
+
+    title=(
+        "Daily Revenue Trend "
+        "by Store"
+    )
+)
+
+
+fig_store_daily.update_layout(
+
+    xaxis_title="Date",
+
+    yaxis_title="Revenue (£)"
+)
+
+
+st.plotly_chart(
+
+    fig_store_daily,
+
+    use_container_width=True
+)
+
+
+# ============================================================
+# MODULE 5
+# PRODUCT CATEGORY CONTEXT
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "5️⃣ Product Category Performance"
+)
+
+
+category = (
+
+    filtered
+
+    .groupby(
+        "product_category"
+    )
+
+    .agg(
+
+        revenue=(
+            "revenue",
+            "sum"
+        ),
+
+        quantity=(
+            "transaction_qty",
+            "sum"
+        ),
+
+        transactions=(
+            "transaction_id",
+            "nunique"
+        )
+    )
+
+    .reset_index()
+
+    .sort_values(
+
+        value_col,
+
+        ascending=False
+
+    )
+)
+
+
+fig_category = px.bar(
+
+    category,
+
+    x="product_category",
+
+    y=value_col,
+
+    text_auto=".2s",
+
+    title=(
+
+        f"{value_label} "
+
+        "by Product Category"
+
+    )
+)
+
+
+fig_category.update_layout(
+
+    xaxis_title=
+    "Product Category",
+
+    yaxis_title=
+    value_label
+)
+
+
+st.plotly_chart(
+
+    fig_category,
+
+    use_container_width=True
+)
+
+
+# ============================================================
+# MODULE 6
+# EVIDENCE BASED BUSINESS INSIGHTS
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "6️⃣ Evidence-Based Business Insights"
+)
+
+
+# Top store
+
+top_store = (
+
+    filtered
+
+    .groupby(
+        "store_location"
+    )
+
+    ["revenue"]
+
+    .sum()
+
+    .idxmax()
+)
+
+
+# Top category
+
+top_category = (
+
+    filtered
+
+    .groupby(
+        "product_category"
+    )
+
+    ["revenue"]
+
+    .sum()
+
+    .idxmax()
+)
+
+
+# Peak bucket
+
+peak_bucket = (
+
+    bucket.loc[
+
+        bucket[
+            "transactions"
+        ].idxmax(),
+
+        "time_bucket"
+
+    ]
+)
+
+
+# Best weekday
+
+best_weekday = (
+
+    weekday_stats.loc[
+
+        weekday_stats[
+            "avg_revenue_per_day"
+        ].idxmax(),
+
+        "day_of_week"
+
+    ]
+)
+
+
+# Lowest weekday
+
+lowest_weekday = (
+
+    weekday_stats.loc[
+
+        weekday_stats[
+            "avg_revenue_per_day"
+        ].idxmin(),
+
+        "day_of_week"
+
+    ]
+)
+
+
+st.success(
+
+    f"""
+    ### Key Findings
+
+    • **Highest-revenue store:** {top_store}
+
+    • **Peak transaction hour:** {peak_hour:02d}:00
+
+    • **Highest-demand time bucket:** {peak_bucket}
+
+    • **Best average-revenue day:** {best_weekday}
+
+    • **Lowest average-revenue day:** {lowest_weekday}
+
+    • **Highest-revenue product category:** {top_category}
+
+    • **Best recorded date:** {best_day_date.date()}
+
+    • **Revenue on best recorded date:** £{best_day_revenue:,.2f}
+
+    ### Operational Recommendations
+
+    • Staff levels should be increased during store-specific peak hours.
+
+    • Staffing should be reduced or optimized during consistently low-demand periods.
+
+    • High-volume products should be stocked before identified peak periods.
+
+    • Promotions can be targeted toward lower-demand periods.
+
+    • Store-level peak-hour differences should be considered when creating employee schedules.
+
+    • Inventory planning should be aligned with hourly and day-of-week demand patterns.
+
+    • Management can use the dashboard to monitor demand and make evidence-based operational decisions.
+    """
+
+)
+
+
+# ============================================================
+# MODULE 7
+# DATA VALIDATION
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "7️⃣ Data Validation Summary"
+)
+
+
+with st.expander(
+    "View Data Quality Checks"
+):
+
+    validation = pd.DataFrame(
+
+        {
+
+            "Validation Check": [
+
+                "Total Rows",
+
+                "Total Columns",
+
+                "Missing Values",
+
+                "Duplicate Rows",
+
+                "Duplicate Transaction IDs",
+
+                "Invalid Dates",
+
+                "Invalid Times",
+
+                "Non-positive Quantity",
+
+                "Non-positive Unit Price"
+
+            ],
+
+            "Result": [
+
+                len(df),
+
+                len(df.columns),
+
+                int(
+                    df.isna()
+                    .sum()
+                    .sum()
+                ),
+
+                int(
+                    df.duplicated()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_id"
+                    ]
+                    .duplicated()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_date"
+                    ]
+                    .isna()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_time"
+                    ]
+                    .isna()
+                    .sum()
+                ),
+
+                int(
+                    (
+                        df[
+                            "transaction_qty"
+                        ]
+                        <= 0
+                    )
+                    .sum()
+                ),
+
+                int(
+                    (
+                        df[
+                            "unit_price"
+                        ]
+                        <= 0
+                    )
+                    .sum()
+                )
+
+            ]
+
+        }
+
     )
 
 
-with summary_col2:
+    st.dataframe(
 
-    st.write(
-        f"**Stores Selected:** "
-        f"{filtered_df[store_location_col].nunique()}"
+        validation,
+
+        use_container_width=True,
+
+        hide_index=True
+
     )
 
 
-with summary_col3:
+# ============================================================
+# DATASET INFORMATION
+# ============================================================
 
-    st.write(
-        f"**Date Range:** "
-        f"{filtered_df['date_only'].min()} "
-        f"to "
-        f"{filtered_df['date_only'].max()}"
+st.markdown("---")
+
+st.header(
+    "8️⃣ Dataset Information"
+)
+
+
+info1, info2, info3 = st.columns(3)
+
+
+with info1:
+
+    st.metric(
+        "Dataset Start Date",
+        str(
+            df[
+                "transaction_date"
+            ]
+            .min()
+            .date()
+        )
     )
+
+
+with info2:
+
+    st.metric(
+        "Dataset End Date",
+        str(
+            df[
+                "transaction_date"
+            ]
+            .max()
+            .date()
+        )
+    )
+
+
+with info3:
+
+    st.metric(
+        "Number of Stores",
+        df[
+            "store_location"
+        ]
+        .nunique()
+    )
+
+
+st.info(
+
+    """
+    **Dataset Scope Note:**
+    
+    The date-enabled dataset currently loaded in this dashboard
+    contains transactions from **1 January 2023 to 30 June 2023**.
+    
+    """
+)
 
 
 # ============================================================
@@ -1411,17 +2124,210 @@ with summary_col3:
 
 st.markdown("---")
 
-st.markdown(
+st.caption(
+
+    "Afficionado Coffee Roasters | "
+    "Sales Trend and Time-Based Performance Analysis | "
+    "Machine Learning Internship"
+
+)
+
+
+# ============================================================
+# MODULE 7
+# DATA VALIDATION
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "7️⃣ Data Validation Summary"
+)
+
+
+with st.expander(
+    "View Data Quality Checks"
+):
+
+    validation = pd.DataFrame(
+
+        {
+
+            "Validation Check": [
+
+                "Total Rows",
+
+                "Total Columns",
+
+                "Missing Values",
+
+                "Duplicate Rows",
+
+                "Duplicate Transaction IDs",
+
+                "Invalid Dates",
+
+                "Invalid Times",
+
+                "Non-positive Quantity",
+
+                "Non-positive Unit Price"
+
+            ],
+
+            "Result": [
+
+                len(df),
+
+                len(df.columns),
+
+                int(
+                    df.isna()
+                    .sum()
+                    .sum()
+                ),
+
+                int(
+                    df.duplicated()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_id"
+                    ]
+                    .duplicated()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_date"
+                    ]
+                    .isna()
+                    .sum()
+                ),
+
+                int(
+                    df[
+                        "transaction_time"
+                    ]
+                    .isna()
+                    .sum()
+                ),
+
+                int(
+                    (
+                        df[
+                            "transaction_qty"
+                        ]
+                        <= 0
+                    )
+                    .sum()
+                ),
+
+                int(
+                    (
+                        df[
+                            "unit_price"
+                        ]
+                        <= 0
+                    )
+                    .sum()
+                )
+
+            ]
+
+        }
+
+    )
+
+
+    st.dataframe(
+
+        validation,
+
+        use_container_width=True,
+
+        hide_index=True
+
+    )
+
+
+# ============================================================
+# DATASET INFORMATION
+# ============================================================
+
+st.markdown("---")
+
+st.header(
+    "8️⃣ Dataset Information"
+)
+
+
+info1, info2, info3 = st.columns(3)
+
+
+with info1:
+
+    st.metric(
+        "Dataset Start Date",
+        str(
+            df[
+                "transaction_date"
+            ]
+            .min()
+            .date()
+        )
+    )
+
+
+with info2:
+
+    st.metric(
+        "Dataset End Date",
+        str(
+            df[
+                "transaction_date"
+            ]
+            .max()
+            .date()
+        )
+    )
+
+
+with info3:
+
+    st.metric(
+        "Number of Stores",
+        df[
+            "store_location"
+        ]
+        .nunique()
+    )
+
+
+st.info(
+
     """
-    <div style="text-align: center;">
-        <p>
-        ☕ <b>Afficionado Coffee Roasters</b>
-        — Sales Trend and Time-Based Performance Analysis
-        </p>
-        <p>
-        Built with Python, Pandas, Plotly and Streamlit
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
+    **Dataset Scope Note:**
+    
+    The date-enabled dataset currently loaded in this dashboard
+    contains transactions from **1 January 2023 to 30 June 2023**.
+    
+    """
+)
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.markdown("---")
+
+st.caption(
+
+    "Afficionado Coffee Roasters | "
+    "Sales Trend and Time-Based Performance Analysis | "
+    "Machine Learning Internship"
 )
