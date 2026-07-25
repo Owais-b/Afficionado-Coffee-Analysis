@@ -52,12 +52,16 @@ def load_data():
     # --------------------------------------------------------
     # YOUR DATASET PATH
     # --------------------------------------------------------
-
-    DATA_PATH = (
-        "C:/Users/User/Desktop/"
-        "Afficionado_Coffee_Analysis/data/"
-        "Coffee Shop Sales New.xlsx"
-    )
+    DATA_PATH = os.path.join(
+    BASE_DIR,
+    "data",
+    "Coffee Shop Sales New.xlsx"
+)
+    DATA_PATH = os.path.join(
+    BASE_DIR,
+    "data",
+    "Coffee Shop Sales New.xlsx"
+)
 
     # Check whether file exists
     if not os.path.exists(DATA_PATH):
